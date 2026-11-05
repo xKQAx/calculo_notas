@@ -1,7 +1,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   const KEY = 'calculo_notas_v1';
-  const blank = () => ({ sem: 1, prev: {}, notes: {}, extra: {}, base: '', hist: {} });
+  const blank = () => ({ sem: 1, prev: {}, notes: {}, extra: {}, base: '', hist: {}, maxSem: 10 });
   let st = blank();
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
@@ -73,7 +73,15 @@
   };
   const chip = (kind, text) => `<span class="chip chip-${kind}">${ICO[kind]}${esc(text)}</span>`;
 
-  const courses = (sem = st.sem) => PENSUM[sem].map((c, i) => ({ id: sem + '-' + i, ...c }))
+  // Semestres visibles: los 10 del plan + los extra creados (>10). Extra = solo manual.
+  const maxSemNow = () => {
+    const fromState = +(st.maxSem || 10);
+    const fromExtra = Math.max(10, ...Object.keys(st.extra || {}).map(Number));
+    return Math.max(fromState, fromExtra);
+  };
+  const semNumbers = () => Array.from({ length: maxSemNow() }, (_, i) => i + 1);
+
+  const courses = (sem = st.sem) => (PENSUM[sem] || []).map((c, i) => ({ id: sem + '-' + i, ...c }))
     .concat(st.extra[sem] || [])
     .map(c => ({ w: CORTES, min: MIN_APROBAR, ...c }));
 
@@ -100,13 +108,51 @@
   function centerTab() {
     const nav = $('#tabs');
     const b = nav.querySelector('[aria-pressed="true"]');
-    if (!b || !window.matchMedia('(max-width: 1199px)').matches) return;
-    const left = b.offsetLeft - (nav.clientWidth - b.offsetWidth) / 2;
-    nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' });
+    if (!b) return;
+    if (window.matchMedia('(max-width: 1199px)').matches) {
+      const left = b.offsetLeft - (nav.clientWidth - b.offsetWidth) / 2;
+      nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' });
+      return;
+    }
+    // En escritorio solo se mueve si la pestaña activa queda fuera de la vista.
+    // El límite derecho es el botón "+", fuera del área con scroll.
+    const pad = 24, view = nav.getBoundingClientRect(), tab = b.getBoundingClientRect();
+    const add = document.querySelector('.sem-add');
+    const right = Math.min(view.right, add ? add.getBoundingClientRect().left : view.right);
+    if (tab.left < view.left + pad) nav.scrollTo({ left: nav.scrollLeft - (view.left + pad - tab.left), behavior: 'smooth' });
+    else if (tab.right > right - pad) nav.scrollTo({ left: nav.scrollLeft + (tab.right - right) + pad, behavior: 'smooth' });
+  }
+
+  // Catálogo de electivas: un clic agrega la materia al semestre actual.
+  function drawElectivas() {
+    const box = $('#electivas');
+    if (!box) return;
+    const added = new Set((st.extra[st.sem] || []).map(c => c.code).filter(Boolean));
+    box.innerHTML = ELECTIVAS.map((e, i) => {
+      const on = added.has(e.code);
+      const cr = e.credits === 1 ? '1 crédito' : e.credits + ' créditos';
+      return `<button type="button" class="electiva" data-electiva="${i}"${on ? ' disabled aria-pressed="true"' : ''}>` +
+        `<span class="electiva-name">${esc(e.name)}</span>` +
+        `<span class="electiva-meta">${esc(e.code)} · ${cr}</span>` +
+        (on ? '<span class="electiva-on">Agregada</span>' : '') +
+        `</button>`;
+    }).join('');
+  }
+
+  function addExtra(name, credits, code) {
+    if (!name || !(credits > 0)) return;
+    (st.extra[st.sem] = st.extra[st.sem] || []).push({
+      id: 'x' + Date.now() + Math.random().toString(36).slice(2, 6),
+      name,
+      credits: Math.min(credits, 10),
+      extra: true,
+      ...(code ? { code } : {})
+    });
+    save(); render();
   }
 
   function render() {
-    $('#tabs').innerHTML = Object.keys(PENSUM).map(n => {
+    $('#tabs').innerHTML = semNumbers().map(n => {
       const on = n == st.sem;
       const has = semHasData(n);
       const label = has ? `Semestre ${n}, con datos` : `Semestre ${n}`;
@@ -117,12 +163,18 @@
     $('#prevCred').value = p.cred ?? '';
     $('#prevAvg').value = p.avg ?? '';
     $('#base').value = formatPesos(st.base || '');
-    $('#semTitle').textContent = 'Materias del semestre ' + st.sem;
+    const isExtra = !PENSUM[st.sem];
+    $('#semTitle').textContent = 'Materias del semestre ' + st.sem + (isExtra ? ' (semestre extra)' : '');
+    $('#delSem').hidden = !isExtra;
+    const addHint = $('#addHint');
+    if (addHint) addHint.textContent = isExtra
+      ? 'Semestre extra, libre: agrega aquí las materias o electivas que vayas a cursar. Todas cuentan para el promedio.'
+      : 'Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: elígelas del catálogo o agrégalas a mano.';
     $('#notice').hidden = Object.keys(st.hist || {}).length > 0;
     $('#accBox').open = st.sem > 1 && !(p.cred || p.avg);
     list = courses();
     // data-label alimenta la tarjeta móvil: el CSS lo muestra y esconde el thead.
-    $('#rows').innerHTML = list.map((c, i) => {
+    $('#rows').innerHTML = list.length ? list.map((c, i) => {
       const n = st.notes[c.id] || [];
       const inp = k => {
         const aria = c.w.length === 1 ? `Nota única de ${esc(c.name)}` : `Nota del corte ${k + 1} de ${esc(c.name)}`;
@@ -131,9 +183,11 @@
       const cells = c.w.length === 1
         ? `<td colspan="3" class="one cut" data-label="Nota única 100%">${inp(0)}<small class="unit">nota única, 100%</small></td>`
         : c.w.map((w, k) => `<td class="cut" data-label="Corte ${k + 1} ${Math.round(w * 100)}%">${inp(k)}</td>`).join('');
-      const del = c.extra ? ` <button type="button" class="link" data-del="${esc(c.id)}">quitar</button>` : '';
-      return `<tr><td class="name" data-label="Materia">${esc(c.name)}<small>mínimo ${fmt(c.min, 1)}${del}</small></td><td class="cred" data-label="Créditos">${c.credits}</td>${cells}<td class="res" data-label="Definitiva" id="r${i}"></td><td class="need" data-label="Qué necesitas" id="n${i}"></td></tr>`;
-    }).join('');
+      const del = (!PENSUM[st.sem] || c.extra) ? ` <button type="button" class="link" data-del="${esc(c.id)}">quitar</button>` : '';
+      const code = c.code ? `<span class="course-code">${esc(c.code)}</span> ` : '';
+      return `<tr><td class="name" data-label="Materia">${esc(c.name)}<small>${code}mínimo ${fmt(c.min, 1)}${del}</small></td><td class="cred" data-label="Créditos">${c.credits}</td>${cells}<td class="res" data-label="Definitiva" id="r${i}"></td><td class="need" data-label="Qué necesitas" id="n${i}"></td></tr>`;
+    }).join('') : `<tr class="is-empty"><td colspan="7">Este semestre todavía no tiene materias. Agrégalas con el formulario de abajo.</td></tr>`;
+    drawElectivas();
     update();
     centerTab();
     if (typeof Hist !== 'undefined') Hist.draw();
@@ -205,6 +259,7 @@
   // Nota que, sacada en lo que falta, aprueba cada materia con su propio mínimo
   // (3,0 en general; 3,5 y 3,8 en práctica y trabajo de grado).
   function passSubjectsArticle() {
+    if (!list.length) return stepArticle('is-open', '—', 'sin materias', 'Agrega materias', 'Todavía no hay materias en este semestre.');
     const lost = [];
     const open = [];
     list.forEach(c => {
@@ -243,6 +298,7 @@
 
   // La otra cuenta: un solo promedio en lo que falta para que el semestre llegue a 3,0.
   function passAverageArticle(complete, avg, cr, known, left) {
+    if (!list.length) return '';
     const target = MIN_APROBAR;
     const kicker = 'promedio del semestre';
     if (complete || !(left > 0)) {
@@ -261,6 +317,7 @@
   }
 
   function drawGoals(complete, avg, cr, known, left) {
+    if (!list.length) { $('#goals').innerHTML = '<p class="step-msg">Agrega materias al semestre para calcular tus metas de descuento.</p>'; return; }
     const base = parseInt(String($('#base').value).replace(/\D/g, '')) || 0;
     $('#goals').innerHTML = DESCUENTOS.map(t => {
       let cls, state, msg;
@@ -341,7 +398,7 @@
     markInvalid();
     refreshDot();
 
-    const avg = complete ? Calc.r2(pts / cr) : null;
+    const avg = (complete && cr > 0) ? Calc.r2(pts / cr) : null;
     const sofar = cr - left > 0 ? known / (cr - left) : null;
     const shown = avg !== null ? avg : sofar;
     const prevCredRaw = $('#prevCred').value.trim(), prevAvgRaw = $('#prevAvg').value.trim();
@@ -351,7 +408,7 @@
     // Si los campos están vacíos, esos semestres salen de las notas ya cargadas.
     let baseCred = 0, baseAvg = 0, items = currentItems;
     if (explicitPrev) { baseCred = pCred; baseAvg = pAvg; }
-    else Object.keys(PENSUM).forEach(n => { if (+n < st.sem) items = items.concat(gradedItems(+n)); });
+    else semNumbers().forEach(n => { if (n < st.sem) items = items.concat(gradedItems(n)); });
     const carried = Calc.ponderado(baseAvg, baseCred, items);
     $('#accSummary').textContent = carried.cred + ' créditos, promedio ' + fmt(carried.avg);
     const acc = carried.cred > 0 ? carried.avg : null;
@@ -370,7 +427,37 @@
     drawGoals(complete, avg, cr, known, left);
   }
 
-  $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-sem]'); if (!b) return; st.sem = +b.dataset.sem; save(); render(); });
+  $('.sem-add').addEventListener('click', () => {
+    st.maxSem = maxSemNow() + 1;
+    st.sem = st.maxSem;
+    save(); render();
+    const nav = $('#tabs');
+    nav.scrollTo({ left: nav.scrollWidth, behavior: 'smooth' });
+  });
+  $('#tabs').addEventListener('click', e => {
+    const b = e.target.closest('[data-sem]'); if (!b) return; st.sem = +b.dataset.sem; save(); render();
+  });
+
+  // Quitar un semestre extra: borra sus materias, notas y acumulados.
+  $('#delSem').addEventListener('click', () => {
+    const n = st.sem;
+    if (PENSUM[n]) return;
+    if (semHasData(n) && !confirm(`Se quitarán las materias y notas del semestre ${n}. ¿Continuar?`)) return;
+    const removed = (st.extra[n] || []).map(c => c.id);
+    removed.forEach(id => delete st.notes[id]);
+    delete st.extra[n];
+    delete st.prev[n];
+    Object.keys(st.notes).forEach(id => { if (id.startsWith(n + '-')) delete st.notes[id]; });
+    // Reacomoda los semestres extra siguientes para no dejar huecos.
+    const top = maxSemNow();
+    for (let m = n + 1; m <= top; m++) {
+      if (st.extra[m]) { st.extra[m - 1] = st.extra[m]; delete st.extra[m]; }
+      if (st.prev[m]) { st.prev[m - 1] = st.prev[m]; delete st.prev[m]; }
+    }
+    st.maxSem = Math.max(10, top - 1);
+    st.sem = Math.min(n, st.maxSem);
+    save(); render();
+  });
   $('#rows').addEventListener('input', e => {
     const t = e.target; if (t.dataset.k === undefined) return;
     applyMask(t, formatNota);
@@ -389,7 +476,7 @@
   });
   $('#rows').addEventListener('click', e => {
     const b = e.target.closest('[data-del]'); if (!b) return;
-    st.extra[st.sem] = st.extra[st.sem].filter(c => c.id !== b.dataset.del); delete st.notes[b.dataset.del]; save(); render();
+    st.extra[st.sem] = (st.extra[st.sem] || []).filter(c => c.id !== b.dataset.del); delete st.notes[b.dataset.del]; save(); render();
   });
   ['prevCred', 'prevAvg'].forEach(id => $('#' + id).addEventListener('input', () => {
     st.prev[st.sem] = { cred: $('#prevCred').value, avg: $('#prevAvg').value }; save(); update();
@@ -399,12 +486,19 @@
     st.base = $('#base').value;
     save(); update();
   });
+  $('#electivas').addEventListener('click', e => {
+    const b = e.target.closest('[data-electiva]'); if (!b) return;
+    const el = ELECTIVAS[+b.dataset.electiva]; if (!el) return;
+    addExtra(el.name, el.credits, el.code);
+  });
   $('#addForm').addEventListener('submit', e => {
     e.preventDefault();
-    const name = $('#exName').value.trim(), cr = parseInt($('#exCred').value);
+    const name = $('#exName').value.trim();
+    const code = $('#exCode').value.trim().toUpperCase();
+    const cr = parseInt($('#exCred').value);
     if (!name || !(cr > 0)) return;
-    (st.extra[st.sem] = st.extra[st.sem] || []).push({ id: 'x' + Date.now(), name, credits: Math.min(cr, 10), extra: true });
-    e.target.reset(); save(); render();
+    addExtra(name, cr, code);
+    e.target.reset();
   });
   $('#reset').addEventListener('click', () => {
     if (!confirm('Se borrarán tus notas y tu historial guardados en este navegador. ¿Continuar?')) return;
@@ -426,6 +520,6 @@
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VIEWS.includes(v)) show(v); });
   show(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calculadora');
 
-  window.App = { get st() { return st; }, set st(v) { st = v; }, save, render, blank, coursesFor: courses };
+  window.App = { get st() { return st; }, set st(v) { st = v; }, save, render, blank, coursesFor: courses, sems: semNumbers, maxSem: maxSemNow };
   render();
 })();

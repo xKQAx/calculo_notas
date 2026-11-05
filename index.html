@@ -35,7 +35,10 @@
   </div>
 </header>
 <div class="tabbar" data-view="calculadora">
-  <nav id="tabs" class="tabs" aria-label="Semestre"></nav>
+  <div class="tabbar-in">
+    <nav id="tabs" class="tabs" aria-label="Semestre"></nav>
+    <button type="button" class="sem-add" data-add-sem aria-label="Agregar un semestre más"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
 </div>
 <main id="contenido" class="wrap">
 
@@ -69,7 +72,10 @@
       </aside>
       <section class="block" aria-labelledby="semTitle">
         <div class="sec-head">
-          <h2 id="semTitle"></h2>
+          <div class="sem-head">
+            <h2 id="semTitle"></h2>
+            <button type="button" id="delSem" class="link" hidden>Quitar este semestre</button>
+          </div>
           <p class="hint no-print">Deja vacío el corte que aún no tienes. Escribe 45 y se convierte en 4,5.</p>
         </div>
         <details class="acc no-print" id="accBox">
@@ -88,9 +94,16 @@
           </table>
         </div>
         <div class="block-body">
-          <p class="hint no-print">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: agrégalas aquí.</p>
+          <p class="hint no-print" id="addHint">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: elígelas del catálogo o agrégalas a mano.</p>
+          <div class="electivas-box no-print">
+            <h3 class="electivas-title">Electivas del periodo</h3>
+            <p class="hint">Toca una para agregarla a este semestre. El código distingue los grupos de una misma materia.</p>
+            <div id="electivas" class="electivas-list" role="group" aria-label="Electivas disponibles"></div>
+          </div>
+          <p class="add-title no-print">¿No está en la lista? Agrégala a mano</p>
           <form id="addForm" class="add no-print">
-            <input id="exName" class="add-name" placeholder="Nombre de la electiva" aria-label="Nombre de la materia" autocomplete="off">
+            <input id="exCode" class="add-code" placeholder="Código" aria-label="Código de la materia" autocomplete="off">
+            <input id="exName" class="add-name" placeholder="Nombre de la materia" aria-label="Nombre de la materia" autocomplete="off">
             <input id="exCred" class="add-cred" inputmode="numeric" placeholder="Créditos" aria-label="Créditos" autocomplete="off">
             <button class="btn">Agregar materia</button>
           </form>

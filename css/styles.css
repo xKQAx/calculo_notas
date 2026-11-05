@@ -39,11 +39,17 @@ svg{display:block}
 .btn-danger{background:transparent;color:var(--bad);border-color:var(--bad)}.btn-danger:hover{background:var(--bad-bg);border-color:var(--bad)}
 /* Semestres */
 .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
-.tabs{position:relative;display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding:10px var(--page-gutter);max-width:calc(var(--page-max) + 2 * var(--page-gutter));margin-inline:auto;scrollbar-width:none}
+.tabbar-in{display:flex;align-items:center;gap:8px;max-width:calc(var(--page-max) + 2 * var(--page-gutter));margin-inline:auto;padding-right:var(--page-gutter)}
+.tabs{position:relative;display:flex;flex:0 1 auto;min-width:0;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding:10px var(--page-gutter);padding-right:0;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tabs button{flex:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);cursor:pointer;font-weight:600;scroll-snap-align:center}
 .tabs button:hover{background:var(--tint)}
 .tabs button[aria-pressed=true]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sem-add{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px dashed var(--line-strong);border-radius:999px;background:var(--surface);color:var(--action);cursor:pointer}
+.sem-add:hover{background:var(--tint);border-color:var(--action)}
+.sem-add svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.sem-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.sem-head .link{font-size:.9rem}
 .sem-dot{width:8px;height:8px;border-radius:50%;background:var(--action)}
 .tabs button[aria-pressed=true] .sem-dot{background:var(--gold)}
 /* Layout */
@@ -106,6 +112,21 @@ input[aria-invalid=true]{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)
 .pair label{flex:1 1 10rem;max-width:14rem}
 .add{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .add-name{flex:1 1 14rem;width:auto}.add-cred{flex:0 0 7rem;width:7rem}
+.add-code{flex:0 0 8.5rem;width:8.5rem;text-transform:uppercase}
+.add-title{margin-top:20px;font-weight:600}
+/* Catálogo de electivas */
+.electivas-box{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.electivas-title{font:700 1.05rem/1.3 var(--serif)}
+.electivas-box>.hint{margin-top:4px}
+.electivas-list{display:grid;gap:8px;margin-top:12px}
+@media (min-width:720px){.electivas-list{grid-template-columns:1fr 1fr}}
+.electiva{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);cursor:pointer;text-align:left}
+.electiva:hover{background:var(--tint);border-color:var(--action)}
+.electiva:disabled{cursor:default;background:var(--ok-bg);border-color:var(--ok)}
+.electiva-name{font-weight:600;font-size:.95rem;line-height:1.25}
+.electiva-meta{grid-column:1;color:var(--muted);font-size:.8rem}
+.electiva-on{grid-column:2;grid-row:1;font-size:.75rem;font-weight:700;color:var(--ok)}
+.electiva:disabled .electiva-meta{color:var(--ok)}
 /* Tabla de notas */
 .scroll{overflow-x:auto;max-width:100%}
 .grades{width:100%;border-collapse:collapse;table-layout:fixed}
@@ -116,8 +137,10 @@ input[aria-invalid=true]{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)
 .grades th:last-child,.grades td:last-child{text-align:left;padding-right:20px}
 .grades td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
 .grades tbody tr:hover td{background:var(--tint)}
+.grades tr.is-empty td{text-align:center;color:var(--muted);padding:28px 20px;grid-column:1/-1}
 .grades td.name{font-weight:600;line-height:1.3}
 .grades td.name small{display:block;margin-top:2px;font-weight:400;font-size:.8rem;color:var(--muted)}
+.course-code{display:inline-block;margin-right:2px;padding:1px 6px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);font-size:.72rem;font-weight:600;color:var(--muted);white-space:nowrap;vertical-align:1px}
 .grades td.cut input{text-align:center;font-weight:600;font-size:1.05rem;padding-inline:4px}
 .unit{display:block;margin-top:4px;font-size:.75rem;color:var(--muted)}
 .err{display:block;margin-top:4px;font-size:.78rem;font-weight:600;color:var(--bad)}

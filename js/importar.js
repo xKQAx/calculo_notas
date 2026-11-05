@@ -42,7 +42,10 @@ const Hist = (() => {
       st.prev[p.nuevoNivel] = { cred: String(p.credNuevos), avg: String(p.ppaNuevo).replace('.', ',') };
     });
     const last = ps[ps.length - 1];
-    if (last) st.sem = Math.min(last.nuevoNivel, Object.keys(PENSUM).length);
+    if (last) {
+      st.sem = Math.max(1, last.nuevoNivel);
+      st.maxSem = Math.max(+(st.maxSem || 10), st.sem);
+    }
   }
 
   async function addFiles(files) {
@@ -155,7 +158,8 @@ const Hist = (() => {
       if (o.app !== 'calculo_notas' || !o.data || typeof o.data !== 'object') throw new Error('Este archivo no es un JSON de esta calculadora.');
       if (!confirm('Esto reemplaza lo que tienes ahora en el navegador. ¿Continuar?')) return;
       const st = Object.assign(A().blank(), o.data);
-      if (!PENSUM[st.sem]) st.sem = 1;
+      if (!(+st.sem >= 1)) st.sem = 1;
+      st.maxSem = Math.max(10, +(st.maxSem || 10), +st.sem);
       A().st = st; A().save(); A().render(); log(`${f.name}: datos cargados.`);
     } catch (err) { log(`${f.name}: ${err.message}`, 'err'); }
   });
@@ -165,9 +169,9 @@ const Hist = (() => {
     const resumen = ps.map(p => ({ Periodo: p.period, 'Semestre cursado': p.nivel, 'Créditos matriculados': p.credMatric, 'Créditos aprobados': p.credAprob, 'Créditos acumulados': p.credNuevos, 'Promedio del semestre': p.promSem, 'Promedio acumulado (PPA)': p.ppaNuevo }));
     const materias = ps.flatMap(p => (p.courses || []).map(c => ({ Periodo: p.period, Código: c.code, Materia: c.name, Créditos: c.credits || '', Horas: c.hours, Semestre: c.sem ?? '', Definitiva: c.def, Aprobada: c.ok ? 'Sí' : 'No' })));
     const cortes = [];
-    Object.keys(PENSUM).forEach(s => A().coursesFor(s).forEach(c => {
+    Object.keys(PENSUM).concat(A().sems().filter(n => n > 10).map(String)).forEach(s => A().coursesFor(+s).forEach(c => {
       const n = st.notes[c.id] || [];
-      if (n.some(v => nv(v) !== '')) cortes.push({ Semestre: +s, Materia: c.name, Créditos: c.credits, 'Corte 1': nv(n[0]), 'Corte 2': nv(n[1]), 'Corte 3': nv(n[2]) });
+      if (n.some(v => nv(v) !== '')) cortes.push({ Semestre: +s, Código: c.code || '', Materia: c.name, Créditos: c.credits, 'Corte 1': nv(n[0]), 'Corte 2': nv(n[1]), 'Corte 3': nv(n[2]) });
     }));
     const wb = XLSX.utils.book_new();
     [['Resumen', resumen], ['Materias', materias], ['Notas por corte', cortes]].forEach(([nm, rows]) => { if (rows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), nm); });
