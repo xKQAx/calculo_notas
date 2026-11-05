@@ -1,9 +1,10 @@
 (() => {
   const $ = s => document.querySelector(s);
   const KEY = 'calculo_notas_v1';
-  const blank = () => ({ sem: 1, prev: {}, notes: {}, extra: {}, base: '', hist: {}, maxSem: 10 });
+  const blank = () => ({ sem: 1, prev: {}, notes: {}, extra: {}, moved: {}, base: '', hist: {}, maxSem: 10 });
   let st = blank();
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
+  if (!st.moved || typeof st.moved !== 'object' || Array.isArray(st.moved)) st.moved = {};
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
   const num = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : Math.min(5, Math.max(0, n)); };
   const fmt = (n, d = 2) => n.toFixed(d).replace('.', ',');
@@ -57,6 +58,8 @@
   };
   const up1 = n => Math.ceil(n * 10 - 1e-9) / 10;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const SEM_GOAL = typeof CREDITOS_SEMESTRE === 'number' ? CREDITOS_SEMESTRE : 16;
+  const TOTAL_GOAL = typeof CREDITOS_TOTAL === 'number' ? CREDITOS_TOTAL : 160;
   let list = [];
 
   // Iconos de trazo, compartidos por chips y peldaños. El texto del chip no va dentro del SVG.
@@ -73,26 +76,52 @@
   };
   const chip = (kind, text) => `<span class="chip chip-${kind}">${ICO[kind]}${esc(text)}</span>`;
 
-  // Semestres visibles: los 10 del plan + los extra creados (>10). Extra = solo manual.
+  // Semestres visibles: los 10 del plan + los extra creados (>10) + destinos de materias movidas.
   const maxSemNow = () => {
     const fromState = +(st.maxSem || 10);
-    const fromExtra = Math.max(10, ...Object.keys(st.extra || {}).map(Number));
-    return Math.max(fromState, fromExtra);
+    const fromExtra = Math.max(10, ...Object.keys(st.extra || {}).map(Number).filter(Number.isFinite));
+    const fromMoved = Math.max(10, ...Object.values(st.moved || {}).map(Number).filter(Number.isFinite));
+    return Math.max(fromState, fromExtra, fromMoved);
   };
   const semNumbers = () => Array.from({ length: maxSemNow() }, (_, i) => i + 1);
 
-  const courses = (sem = st.sem) => (PENSUM[sem] || []).map((c, i) => ({ id: sem + '-' + i, ...c }))
-    .concat(st.extra[sem] || [])
-    .map(c => ({ w: CORTES, min: MIN_APROBAR, ...c }));
+  // El plan se puede reacomodar: st.moved[id] guarda el semestre destino de una materia del plan.
+  const courses = (sem = st.sem) => {
+    const moved = st.moved || {};
+    const base = (PENSUM[sem] || [])
+      .map((c, i) => ({ id: sem + '-' + i, src: sem + '-' + i, origin: sem, ...c }))
+      .filter(c => moved[c.id] === undefined || +moved[c.id] === +sem);
+    const incoming = [];
+    Object.keys(moved).forEach(id => {
+      if (+moved[id] !== +sem) return;
+      const [from, idx] = id.split('-').map(Number);
+      if (from === +sem || !PENSUM[from] || !PENSUM[from][idx]) return;
+      incoming.push({ id, src: id, origin: from, moved: true, ...PENSUM[from][idx] });
+    });
+    return base.concat(incoming, st.extra[sem] || [])
+      .map(c => ({ w: CORTES, min: MIN_APROBAR, ...c }));
+  };
 
   // Punto discreto: hay notas escritas, una electiva o un polígrafo de ese semestre.
   function semHasData(n) {
     const key = String(n);
-    const prefixed = Object.keys(st.notes).some(id => id.startsWith(key + '-') && (st.notes[id] || []).some(v => String(v ?? '').trim() !== ''));
+    const hasNotes = courses(n).some(c => (st.notes[c.id] || []).some(v => String(v ?? '').trim() !== ''));
     const extras = st.extra[key] || [];
-    const extraNotes = extras.some(c => (st.notes[c.id] || []).some(v => String(v ?? '').trim() !== ''));
     const hist = Object.values(st.hist || {}).some(p => String(p.nivel) === key);
-    return prefixed || extraNotes || extras.length > 0 || hist;
+    return hasNotes || extras.length > 0 || hist;
+  }
+
+  // Créditos distintos del plan: una materia repetida no suma dos veces.
+  function totalCredits() {
+    const seen = new Set();
+    let total = 0;
+    semNumbers().forEach(sem => courses(sem).forEach(c => {
+      const key = c.code ? 'c:' + String(c.code).toLowerCase() : (c.src ? 's:' + c.src : 'i:' + c.id);
+      if (seen.has(key)) return;
+      seen.add(key);
+      total += Number(c.credits) || 0;
+    }));
+    return total;
   }
 
   function refreshDot() {
@@ -123,30 +152,55 @@
     else if (tab.right > right - pad) nav.scrollTo({ left: nav.scrollLeft + (tab.right - right) + pad, behavior: 'smooth' });
   }
 
-  // Catálogo de electivas: un clic agrega la materia al semestre actual.
-  function drawElectivas() {
-    const box = $('#electivas');
+  // Catálogo de materias de línea y electivas. Un clic agrega al semestre actual.
+  const LINEA = (() => {
+    const arr = [];
+    Object.keys(PENSUM).map(Number).sort((a, b) => a - b).forEach(sem => {
+      (PENSUM[sem] || []).forEach((c, i) => arr.push({ name: c.name, credits: c.credits, code: c.code, src: sem + '-' + i, sem }));
+    });
+    return arr;
+  })();
+  const ELECTIVAS_LIST = typeof ELECTIVAS !== 'undefined' ? ELECTIVAS : [];
+  let catTab = 'linea', catQuery = '', catShown = [];
+  const fold = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  function drawCatalog() {
+    const box = $('#catalog');
     if (!box) return;
-    const added = new Set((st.extra[st.sem] || []).map(c => c.code).filter(Boolean));
-    box.innerHTML = ELECTIVAS.map((e, i) => {
-      const on = added.has(e.code);
-      const cr = e.credits === 1 ? '1 crédito' : e.credits + ' créditos';
-      return `<button type="button" class="electiva" data-electiva="${i}"${on ? ' disabled aria-pressed="true"' : ''}>` +
-        `<span class="electiva-name">${esc(e.name)}</span>` +
-        `<span class="electiva-meta">${esc(e.code)} · ${cr}</span>` +
-        (on ? '<span class="electiva-on">Agregada</span>' : '') +
+    document.querySelectorAll('#catTabs [data-cat]').forEach(b => {
+      b.setAttribute('aria-selected', b.dataset.cat === catTab ? 'true' : 'false');
+    });
+    const q = fold(catQuery.trim());
+    const taken = new Set();
+    list.forEach(c => {
+      if (c.code) taken.add('c:' + String(c.code).toLowerCase());
+      if (c.src) taken.add('s:' + c.src);
+      taken.add('i:' + c.id);
+    });
+    const all = catTab === 'electivas' ? ELECTIVAS_LIST : LINEA;
+    catShown = all.filter(it => !q || fold(it.name + ' ' + (it.code || '') + ' sem ' + (it.sem || '')).includes(q));
+    box.innerHTML = catShown.length ? catShown.map((it, i) => {
+      const key = it.code ? 'c:' + String(it.code).toLowerCase() : 's:' + it.src;
+      const on = taken.has(key);
+      const meta = [it.sem ? 'Sem ' + it.sem : '', it.code || '', it.credits + ' cr'].filter(Boolean).join(' · ');
+      return `<button type="button" class="cat-item" data-cat-i="${i}"${on ? ' disabled' : ''} title="${esc(it.name)}">` +
+        `<span class="cat-name">${esc(it.name)}</span>` +
+        `<span class="cat-meta">${on ? 'Agregada · ' : ''}${esc(meta)}</span>` +
         `</button>`;
-    }).join('');
+    }).join('') : '<p class="cat-empty">No encontramos materias con esa búsqueda.</p>';
+    const count = $('#catCount');
+    if (count) count.textContent = catShown.length + (catTab === 'electivas' ? ' electivas' : ' materias');
   }
 
-  function addExtra(name, credits, code) {
+  function addExtra(name, credits, code, src) {
     if (!name || !(credits > 0)) return;
     (st.extra[st.sem] = st.extra[st.sem] || []).push({
       id: 'x' + Date.now() + Math.random().toString(36).slice(2, 6),
       name,
       credits: Math.min(credits, 10),
       extra: true,
-      ...(code ? { code } : {})
+      ...(code ? { code } : {}),
+      ...(src ? { src } : {})
     });
     save(); render();
   }
@@ -169,7 +223,7 @@
     const addHint = $('#addHint');
     if (addHint) addHint.textContent = isExtra
       ? 'Semestre extra, libre: agrega aquí las materias o electivas que vayas a cursar. Todas cuentan para el promedio.'
-      : 'Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: elígelas del catálogo o agrégalas a mano.';
+      : 'Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Aquí puedes repetir o adelantar materias de línea y electivas.';
     $('#notice').hidden = Object.keys(st.hist || {}).length > 0;
     $('#accBox').open = st.sem > 1 && !(p.cred || p.avg);
     list = courses();
@@ -183,11 +237,13 @@
       const cells = c.w.length === 1
         ? `<td colspan="3" class="one cut" data-label="Nota única 100%">${inp(0)}<small class="unit">nota única, 100%</small></td>`
         : c.w.map((w, k) => `<td class="cut" data-label="Corte ${k + 1} ${Math.round(w * 100)}%">${inp(k)}</td>`).join('');
-      const del = (!PENSUM[st.sem] || c.extra) ? ` <button type="button" class="link" data-del="${esc(c.id)}">quitar</button>` : '';
+      const del = c.extra ? ` <button type="button" class="link no-print" data-del="${esc(c.id)}">quitar</button>` : '';
+      const move = `<button type="button" class="link no-print" data-move="${esc(c.id)}">mover</button>`;
       const code = c.code ? `<span class="course-code">${esc(c.code)}</span> ` : '';
-      return `<tr><td class="name" data-label="Materia">${esc(c.name)}<small>${code}mínimo ${fmt(c.min, 1)}${del}</small></td><td class="cred" data-label="Créditos">${c.credits}</td>${cells}<td class="res" data-label="Definitiva" id="r${i}"></td><td class="need" data-label="Qué necesitas" id="n${i}"></td></tr>`;
+      const tag = c.moved ? `<span class="course-origin">de Sem ${c.origin}</span> ` : '';
+      return `<tr><td class="name" data-label="Materia">${esc(c.name)}<small>${code}${tag}mínimo ${fmt(c.min, 1)} · ${move}${del}</small></td><td class="cred" data-label="Créditos">${c.credits}</td>${cells}<td class="res" data-label="Definitiva" id="r${i}"></td><td class="need" data-label="Qué necesitas" id="n${i}"></td></tr>`;
     }).join('') : `<tr class="is-empty"><td colspan="7">Este semestre todavía no tiene materias. Agrégalas con el formulario de abajo.</td></tr>`;
-    drawElectivas();
+    drawCatalog();
     update();
     centerTab();
     if (typeof Hist !== 'undefined') Hist.draw();
@@ -417,10 +473,36 @@
     const accTxt = acc !== null ? fmt(acc) : '—';
     const discPct = avg !== null ? (d ? d.pct : 0) : null;
     const label = avg !== null ? 'Promedio del semestre' : 'Promedio con lo que llevas';
+    const total = totalCredits();
+    const semPct = SEM_GOAL ? Math.min(100, Math.round(cr / SEM_GOAL * 100)) : 0;
+    const totPct = TOTAL_GOAL ? Math.min(100, Math.round(total / TOTAL_GOAL * 100)) : 0;
+    const semOk = cr >= SEM_GOAL;
+    const totOk = total >= TOTAL_GOAL;
+    const semMsg = semOk ? 'Cumple el mínimo' : `Faltan ${SEM_GOAL - cr} crédito${SEM_GOAL - cr === 1 ? '' : 's'}`;
+    const totMsg = totOk ? 'Meta completa' : `Faltan ${TOTAL_GOAL - total} crédito${TOTAL_GOAL - total === 1 ? '' : 's'}`;
+    const pill = $('#semCredPill');
+    if (pill) {
+      pill.classList.toggle('is-ok', semOk);
+      pill.classList.toggle('is-warn', !semOk);
+      $('#semCredVal').textContent = `${cr}/${SEM_GOAL}`;
+      $('#semCredBar').style.width = semPct + '%';
+    }
     $('#summary').innerHTML =
       `<p class="hero"><b>${shownTxt}</b><span>${label}</span></p>` +
-      `<dl class="figs"><div><dt>Créditos</dt><dd>${cr}</dd></div>` +
-      `<div><dt>Acumulado</dt><dd>${accTxt}</dd></div>` +
+      `<div class="credit-card">` +
+        `<div class="credit ${semOk ? 'is-ok' : 'is-warn'}">` +
+          `<div class="credit-head"><span>Créditos del semestre</span><b>${cr}/${SEM_GOAL}</b></div>` +
+          `<div class="credit-track" aria-hidden="true"><i style="width:${semPct}%"></i></div>` +
+          `<small>${semMsg}</small>` +
+        `</div>` +
+        `<div class="credit ${totOk ? 'is-ok' : 'is-warn'}">` +
+          `<div class="credit-head"><span>Total del plan</span><b>${total}/${TOTAL_GOAL}</b></div>` +
+          `<div class="credit-track" aria-hidden="true"><i style="width:${totPct}%"></i></div>` +
+          `<small>${totMsg}</small>` +
+        `</div>` +
+        `<p class="credit-note">Las materias repetidas cuentan una vez en el total.</p>` +
+      `</div>` +
+      `<dl class="figs"><div><dt>Acumulado</dt><dd>${accTxt}</dd></div>` +
       `<div><dt>Descuento</dt><dd${discPct ? ' class="is-gold"' : ''}>${discPct !== null ? discPct + '%' : '—'}</dd></div></dl>`;
     drawScale(shown, avg !== null);
     drawPass(complete, avg, cr, known, left);
@@ -454,6 +536,12 @@
       if (st.extra[m]) { st.extra[m - 1] = st.extra[m]; delete st.extra[m]; }
       if (st.prev[m]) { st.prev[m - 1] = st.prev[m]; delete st.prev[m]; }
     }
+    // Las materias movidas a este semestre vuelven a su plan; las de más adelante se corren.
+    Object.keys(st.moved).forEach(id => {
+      const t = +st.moved[id];
+      if (t === n) delete st.moved[id];
+      else if (t > n) st.moved[id] = t - 1;
+    });
     st.maxSem = Math.max(10, top - 1);
     st.sem = Math.min(n, st.maxSem);
     save(); render();
@@ -478,6 +566,46 @@
     const b = e.target.closest('[data-del]'); if (!b) return;
     st.extra[st.sem] = (st.extra[st.sem] || []).filter(c => c.id !== b.dataset.del); delete st.notes[b.dataset.del]; save(); render();
   });
+
+  // Mover una materia a otro semestre conservando sus notas.
+  let moveId = null, moveFrom = null;
+  const moveDlg = $('#moveDlg');
+  $('#rows').addEventListener('click', e => {
+    const b = e.target.closest('[data-move]'); if (!b) return;
+    const c = list.find(x => x.id === b.dataset.move); if (!c) return;
+    moveId = c.id; moveFrom = st.sem;
+    $('#moveName').textContent = c.name + (c.code ? ' · ' + c.code : '');
+    const sel = $('#moveSem');
+    sel.innerHTML = semNumbers().map(n => `<option value="${n}">Semestre ${n}</option>`).join('');
+    sel.value = String(st.sem);
+    if (typeof moveDlg.showModal === 'function') moveDlg.showModal();
+    else moveDlg.setAttribute('open', '');
+  });
+  $('#moveForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const target = +$('#moveSem').value;
+    const c = list.find(x => x.id === moveId);
+    if (c && target >= 1 && target !== moveFrom) {
+      if (c.extra) {
+        const arr = st.extra[moveFrom] || [];
+        const idx = arr.findIndex(x => x.id === moveId);
+        if (idx >= 0) {
+          const [course] = arr.splice(idx, 1);
+          (st.extra[target] = st.extra[target] || []).push(course);
+        }
+      } else {
+        const origin = +String(moveId).split('-')[0];
+        if (target === origin) delete st.moved[moveId];
+        else st.moved[moveId] = target;
+      }
+      st.sem = target;
+      save(); render();
+    }
+    if (moveDlg.open) moveDlg.close();
+  });
+  $('[data-move-cancel]').addEventListener('click', () => { if (moveDlg.open) moveDlg.close(); });
+  moveDlg.addEventListener('click', e => { if (e.target === moveDlg && moveDlg.open) moveDlg.close(); });
+
   ['prevCred', 'prevAvg'].forEach(id => $('#' + id).addEventListener('input', () => {
     st.prev[st.sem] = { cred: $('#prevCred').value, avg: $('#prevAvg').value }; save(); update();
   }));
@@ -486,10 +614,22 @@
     st.base = $('#base').value;
     save(); update();
   });
-  $('#electivas').addEventListener('click', e => {
-    const b = e.target.closest('[data-electiva]'); if (!b) return;
-    const el = ELECTIVAS[+b.dataset.electiva]; if (!el) return;
-    addExtra(el.name, el.credits, el.code);
+  $('#catTabs').addEventListener('click', e => {
+    const b = e.target.closest('[data-cat]'); if (!b) return;
+    catTab = b.dataset.cat;
+    catQuery = '';
+    const s = $('#catSearch');
+    if (s) s.value = '';
+    drawCatalog();
+  });
+  $('#catSearch').addEventListener('input', e => {
+    catQuery = e.target.value;
+    drawCatalog();
+  });
+  $('#catalog').addEventListener('click', e => {
+    const b = e.target.closest('[data-cat-i]'); if (!b || b.disabled) return;
+    const it = catShown[+b.dataset.catI]; if (!it) return;
+    addExtra(it.name, it.credits, it.code, it.src);
   });
   $('#addForm').addEventListener('submit', e => {
     e.preventDefault();

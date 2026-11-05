@@ -1,6 +1,8 @@
 // Reglas y plan de estudios. Si algo cambia en la universidad, se edita solo este archivo.
 const MIN_APROBAR = 3.0;            // mínimo general para aprobar (confirmar)
 const CORTES = [0.3, 0.3, 0.4];     // peso de cada corte
+const CREDITOS_SEMESTRE = 16;       // meta mínima de créditos por semestre
+const CREDITOS_TOTAL = 160;         // meta total del plan
 const DESCUENTOS = [                // acuerdo 005
   { prom: 4.3, pct: 20 },
   { prom: 4.5, pct: 40 },

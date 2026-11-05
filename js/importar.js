@@ -159,6 +159,7 @@ const Hist = (() => {
       if (!confirm('Esto reemplaza lo que tienes ahora en el navegador. ¿Continuar?')) return;
       const st = Object.assign(A().blank(), o.data);
       if (!(+st.sem >= 1)) st.sem = 1;
+      if (!st.moved || typeof st.moved !== 'object' || Array.isArray(st.moved)) st.moved = {};
       st.maxSem = Math.max(10, +(st.maxSem || 10), +st.sem);
       A().st = st; A().save(); A().render(); log(`${f.name}: datos cargados.`);
     } catch (err) { log(`${f.name}: ${err.message}`, 'err'); }

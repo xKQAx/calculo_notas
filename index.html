@@ -74,6 +74,11 @@
         <div class="sec-head">
           <div class="sem-head">
             <h2 id="semTitle"></h2>
+            <div class="sem-cred" id="semCredPill" title="Meta mínima: 16 créditos por semestre">
+              <span class="sem-cred-label">Créditos</span>
+              <b id="semCredVal">0/16</b>
+              <span class="sem-cred-track" aria-hidden="true"><i id="semCredBar"></i></span>
+            </div>
             <button type="button" id="delSem" class="link" hidden>Quitar este semestre</button>
           </div>
           <p class="hint no-print">Deja vacío el corte que aún no tienes. Escribe 45 y se convierte en 4,5.</p>
@@ -94,19 +99,31 @@
           </table>
         </div>
         <div class="block-body">
-          <p class="hint no-print" id="addHint">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: elígelas del catálogo o agrégalas a mano.</p>
-          <div class="electivas-box no-print">
-            <h3 class="electivas-title">Electivas del periodo</h3>
-            <p class="hint">Toca una para agregarla a este semestre. El código distingue los grupos de una misma materia.</p>
-            <div id="electivas" class="electivas-list" role="group" aria-label="Electivas disponibles"></div>
+          <p class="hint no-print" id="addHint">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Aquí puedes repetir o adelantar materias de línea y electivas.</p>
+          <div class="catalog-box no-print">
+            <div class="catalog-head">
+              <h3 class="catalog-title">Agregar materias</h3>
+              <div class="cat-tabs" id="catTabs" role="tablist" aria-label="Tipo de materia">
+                <button type="button" class="cat-tab" data-cat="linea" role="tab" aria-selected="true" aria-controls="catalog">Línea</button>
+                <button type="button" class="cat-tab" data-cat="electivas" role="tab" aria-selected="false" aria-controls="catalog">Electivas</button>
+              </div>
+            </div>
+            <p class="hint" id="catHint">Toca una para agregarla a este semestre. Para mover una materia de semestre, usa «mover» en la tabla.</p>
+            <div class="cat-tools">
+              <input id="catSearch" type="search" placeholder="Buscar por nombre o código" aria-label="Buscar materia por nombre o código" autocomplete="off">
+              <span class="cat-count" id="catCount"></span>
+            </div>
+            <div id="catalog" class="cat-list" role="tabpanel" aria-label="Materias disponibles" aria-live="polite"></div>
           </div>
-          <p class="add-title no-print">¿No está en la lista? Agrégala a mano</p>
-          <form id="addForm" class="add no-print">
-            <input id="exCode" class="add-code" placeholder="Código" aria-label="Código de la materia" autocomplete="off">
-            <input id="exName" class="add-name" placeholder="Nombre de la materia" aria-label="Nombre de la materia" autocomplete="off">
-            <input id="exCred" class="add-cred" inputmode="numeric" placeholder="Créditos" aria-label="Créditos" autocomplete="off">
-            <button class="btn">Agregar materia</button>
-          </form>
+          <details class="manual no-print">
+            <summary>¿No está en la lista? Agregar a mano</summary>
+            <form id="addForm" class="add">
+              <input id="exCode" class="add-code" placeholder="Código" aria-label="Código de la materia" autocomplete="off">
+              <input id="exName" class="add-name" placeholder="Nombre de la materia" aria-label="Nombre de la materia" autocomplete="off">
+              <input id="exCred" class="add-cred" inputmode="numeric" placeholder="Créditos" aria-label="Créditos" autocomplete="off">
+              <button class="btn">Agregar materia</button>
+            </form>
+          </details>
           <p class="print-note">Herramienta no oficial. La nota válida es la de Génesis.</p>
         </div>
       </section>
@@ -185,6 +202,19 @@
     </div>
   </div>
 </footer>
+<dialog id="moveDlg" class="move-dlg" aria-labelledby="moveTitle">
+  <form id="moveForm" class="move-form">
+    <h2 id="moveTitle">Mover materia</h2>
+    <p class="hint" id="moveName"></p>
+    <label class="move-field">Semestre destino
+      <select id="moveSem"></select>
+    </label>
+    <div class="move-actions">
+      <button type="button" class="btn btn-ghost" data-move-cancel>Cancelar</button>
+      <button type="submit" class="btn">Mover</button>
+    </div>
+  </form>
+</dialog>
 <noscript><p class="wrap">Esta calculadora necesita JavaScript. Con él activado, nada de lo que escribes sale de tu navegador.</p></noscript>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
