@@ -100,7 +100,7 @@
   function centerTab() {
     const nav = $('#tabs');
     const b = nav.querySelector('[aria-pressed="true"]');
-    if (!b || !window.matchMedia('(max-width: 1024px)').matches) return;
+    if (!b || !window.matchMedia('(max-width: 1199px)').matches) return;
     const left = b.offsetLeft - (nav.clientWidth - b.offsetWidth) / 2;
     nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' });
   }
@@ -118,6 +118,8 @@
     $('#prevAvg').value = p.avg ?? '';
     $('#base').value = formatPesos(st.base || '');
     $('#semTitle').textContent = 'Materias del semestre ' + st.sem;
+    $('#notice').hidden = Object.keys(st.hist || {}).length > 0;
+    $('#accBox').open = st.sem > 1 && !(p.cred || p.avg);
     list = courses();
     // data-label alimenta la tarjeta móvil: el CSS lo muestra y esconde el thead.
     $('#rows').innerHTML = list.map((c, i) => {
@@ -182,6 +184,82 @@
     return `${kind} ${fmt(shown)}, en la zona de ${hit.pct} por ciento, desde ${fmt(hit.prom, 1)}${hasta}. La escala va de 3,0 a 5,0.`;
   }
 
+  // Tarjeta de meta. El texto va escapado; extra es HTML ya armado (el valor a pagar).
+  function stepArticle(cls, value, kicker, state, msg, extra) {
+    const ico = cls === 'is-done' ? 'done' : cls === 'is-pass' ? 'ok' : cls === 'is-no' ? 'no' : 'open';
+    return `<article class="step ${cls}"><span class="step-ico">${ICO[ico]}</span><div><p class="step-top"><b>${esc(String(value))}</b><span>${esc(kicker)}</span></p><p class="step-state">${esc(state)}</p><p class="step-msg">${esc(msg)}</p>${extra || ''}</div></article>`;
+  }
+
+  // Promedio aún abierto para que el semestre, con todas las materias, llegue a target.
+  const gap = (target, cr, known, left) => (target * cr - known) / left;
+
+  function joinEs(names) {
+    const max = 2;
+    if (names.length <= max) {
+      if (names.length <= 1) return names[0] || '';
+      return names.slice(0, -1).join(', ') + ' y ' + names[names.length - 1];
+    }
+    return names.slice(0, max).join(', ') + ' y ' + (names.length - max) + ' más';
+  }
+
+  // Nota que, sacada en lo que falta, aprueba cada materia con su propio mínimo
+  // (3,0 en general; 3,5 y 3,8 en práctica y trabajo de grado).
+  function passSubjectsArticle() {
+    const lost = [];
+    const open = [];
+    list.forEach(c => {
+      const r = Calc.course(c.w, (st.notes[c.id] || []).map(num));
+      if (r.final !== null) {
+        if (r.final < c.min) lost.push(c.name);
+        return;
+      }
+      open.push({ name: c.name, x: Calc.need(r, c.min) });
+    });
+    if (lost.length) return stepArticle('is-no', '—', 'materias perdidas', 'Imposible', 'Ya no alcanzan: ' + joinEs(lost));
+    const pending = open.filter(o => o.x > 0);
+    if (!pending.length) {
+      const msg = open.length ? 'Ya lo tienes asegurado' : 'Todas las materias están aprobadas';
+      return stepArticle('is-pass', fmt(MIN_APROBAR, 1), 'todas las materias', 'Lograda', msg);
+    }
+    const blocked = pending.filter(o => o.x > 5);
+    if (blocked.length) return stepArticle('is-no', '—', 'materias perdidas', 'Imposible', 'Ya no alcanza en ' + joinEs(blocked.map(o => o.name)) + ', ni con 5,0');
+    const show = up1(Math.max(...pending.map(o => o.x)));
+    const tops = pending.filter(o => Math.abs(up1(o.x) - show) < 1e-9);
+    const rest = pending.length - tops.length;
+    const settled = list.length - pending.length;
+    let kicker, msg;
+    if (rest === 0 && tops.length > 1) {
+      kicker = settled ? 'en las abiertas' : 'en cada materia';
+      msg = 'Saca al menos esto en lo que falta';
+    } else if (tops.length === 1) {
+      kicker = tops[0].name;
+      msg = rest ? 'Es la más exigente. Las demás piden menos' : 'Saca al menos esto en lo que falta';
+    } else {
+      kicker = 'en varias';
+      msg = 'La necesitan ' + joinEs(tops.map(t => t.name)) + '. Las demás piden menos';
+    }
+    return stepArticle('is-open', fmt(show, 1), kicker, 'Alcanzable', msg);
+  }
+
+  // La otra cuenta: un solo promedio en lo que falta para que el semestre llegue a 3,0.
+  function passAverageArticle(complete, avg, cr, known, left) {
+    const target = MIN_APROBAR;
+    const kicker = 'promedio del semestre';
+    if (complete || !(left > 0)) {
+      if (avg !== null && avg >= target) return stepArticle('is-pass', fmt(target, 1), kicker, 'Lograda', 'El promedio ya llega');
+      return stepArticle('is-no', fmt(target, 1), kicker, 'Imposible', 'Con el semestre cerrado no se llega');
+    }
+    const x = gap(target, cr, known, left);
+    if (x <= 0) return stepArticle('is-pass', fmt(target, 1), kicker, 'Lograda', 'Ya lo tienes asegurado');
+    if (x > 5) return stepArticle('is-no', '—', kicker, 'Imposible', 'Ya no alcanza ni con 5,0');
+    return stepArticle('is-open', fmt(up1(x), 1), kicker, 'Alcanzable', 'Saca este promedio en lo que falta para llegar a ' + fmt(target, 1));
+  }
+
+  function drawPass(complete, avg, cr, known, left) {
+    $('#passHint').textContent = 'Arriba, la nota para aprobar cada materia con su mínimo. Abajo, la nota para que el promedio del semestre llegue a ' + fmt(MIN_APROBAR, 1) + '.';
+    $('#pass').innerHTML = passSubjectsArticle() + passAverageArticle(complete, avg, cr, known, left);
+  }
+
   function drawGoals(complete, avg, cr, known, left) {
     const base = parseInt(String($('#base').value).replace(/\D/g, '')) || 0;
     $('#goals').innerHTML = DESCUENTOS.map(t => {
@@ -190,14 +268,13 @@
         if (avg >= t.prom) { cls = 'is-done'; state = 'Lograda'; msg = 'Este descuento ya es tuyo'; }
         else { cls = 'is-no'; state = 'Imposible'; msg = 'Con el semestre cerrado no se llega'; }
       } else {
-        const x = (t.prom * cr - known) / left;
+        const x = gap(t.prom, cr, known, left);
         if (x <= 0) { cls = 'is-done'; state = 'Lograda'; msg = 'Ya lo tienes asegurado'; }
         else if (x > 5) { cls = 'is-no'; state = 'Imposible'; msg = 'Ya no alcanza'; }
         else { cls = 'is-open'; state = 'Alcanzable'; msg = 'Necesitas ' + fmt(up1(x), 1) + ' en lo que falta'; }
       }
-      const ico = cls === 'is-done' ? 'done' : cls === 'is-no' ? 'no' : 'open';
       const pay = base ? `<p class="pay">Pagarías ${money(base * (1 - t.pct / 100))}</p>` : '';
-      return `<article class="step ${cls}"><span class="step-ico">${ICO[ico]}</span><div><p class="step-top"><b>${fmt(t.prom, 1)}</b><span>${t.pct}%</span></p><p class="step-state">${state}</p><p class="step-msg">${msg}</p>${pay}</div></article>`;
+      return stepArticle(cls, fmt(t.prom, 1), t.pct + '%', state, msg, pay);
     }).join('');
   }
 
@@ -226,10 +303,23 @@
     });
   }
 
+  // Materias con nota de un semestre. La regla de qué nota cuenta vive en Calc.grade.
+  function gradedItems(sem) {
+    const items = [];
+    courses(sem).forEach(c => {
+      const grade = Calc.grade(Calc.course(c.w, (st.notes[c.id] || []).map(num)));
+      if (grade !== null) items.push({ credits: c.credits, grade });
+    });
+    return items;
+  }
+
   function update() {
     let cr = 0, known = 0, left = 0, pts = 0, complete = true;
+    const currentItems = [];
     list.forEach((c, i) => {
       const r = Calc.course(c.w, (st.notes[c.id] || []).map(num));
+      const grade = Calc.grade(r);
+      if (grade !== null) currentItems.push({ credits: c.credits, grade });
       cr += c.credits; known += c.credits * r.known; left += c.credits * r.left;
       const res = $('#r' + i), nd = $('#n' + i);
       if (r.final !== null) {
@@ -254,8 +344,17 @@
     const avg = complete ? Calc.r2(pts / cr) : null;
     const sofar = cr - left > 0 ? known / (cr - left) : null;
     const shown = avg !== null ? avg : sofar;
-    const pCred = parseInt($('#prevCred').value) || 0, pAvg = num($('#prevAvg').value) || 0;
-    const acc = complete ? Calc.r2(Calc.accum(pAvg, pCred, pts, cr)) : null;
+    const prevCredRaw = $('#prevCred').value.trim(), prevAvgRaw = $('#prevAvg').value.trim();
+    const explicitPrev = prevCredRaw !== '' || prevAvgRaw !== '';
+    const pCred = parseInt(prevCredRaw) || 0, pAvg = num(prevAvgRaw) || 0;
+    // Base escrita (o del polígrafo): no se vuelve a sumar con semestres anteriores.
+    // Si los campos están vacíos, esos semestres salen de las notas ya cargadas.
+    let baseCred = 0, baseAvg = 0, items = currentItems;
+    if (explicitPrev) { baseCred = pCred; baseAvg = pAvg; }
+    else Object.keys(PENSUM).forEach(n => { if (+n < st.sem) items = items.concat(gradedItems(+n)); });
+    const carried = Calc.ponderado(baseAvg, baseCred, items);
+    $('#accSummary').textContent = carried.cred + ' créditos, promedio ' + fmt(carried.avg);
+    const acc = carried.cred > 0 ? carried.avg : null;
     const d = avg !== null ? Calc.discount(avg, DESCUENTOS) : null;
     const shownTxt = shown !== null ? fmt(shown) : '—';
     const accTxt = acc !== null ? fmt(acc) : '—';
@@ -266,10 +365,8 @@
       `<dl class="figs"><div><dt>Créditos</dt><dd>${cr}</dd></div>` +
       `<div><dt>Acumulado</dt><dd>${accTxt}</dd></div>` +
       `<div><dt>Descuento</dt><dd${discPct ? ' class="is-gold"' : ''}>${discPct !== null ? discPct + '%' : '—'}</dd></div></dl>`;
-    const dockAvg = $('#dockAvg'), dockAcc = $('#dockAcc');
-    if (dockAvg) dockAvg.textContent = shownTxt;
-    if (dockAcc) dockAcc.textContent = accTxt;
     drawScale(shown, avg !== null);
+    drawPass(complete, avg, cr, known, left);
     drawGoals(complete, avg, cr, known, left);
   }
 
@@ -315,20 +412,19 @@
     st = blank(); render();
   });
 
-  // En el celular la barra fija abre el mismo panel que en escritorio está siempre visible.
-  const side = $('#side'), dock = $('#dock');
-  const setSheet = open => {
-    const narrow = window.matchMedia('(max-width: 1024px)').matches;
-    side.classList.toggle('is-open', open && narrow);
-    document.body.classList.toggle('sheet-open', open && narrow);
-    dock.setAttribute('aria-expanded', open && narrow ? 'true' : 'false');
-    const more = dock.querySelector('.dock-more');
-    if (more) more.textContent = open && narrow ? 'Cerrar' : 'Ver metas';
+  // El resultado va en el flujo de la página (sin hoja ni scroll propio).
+  window.addEventListener('resize', centerTab);
+
+  // Tres vistas con hash en la URL: la flecha atrás del navegador funciona.
+  const VIEWS = ['calculadora', 'historial', 'datos'];
+  const show = v => {
+    document.querySelectorAll('[data-view]').forEach(el => { el.hidden = el.dataset.view !== v; });
+    document.querySelectorAll('#views [data-go]').forEach(b => (b.dataset.go === v ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
+    window.scrollTo(0, 0);
   };
-  dock.addEventListener('click', () => setSheet(!side.classList.contains('is-open')));
-  side.addEventListener('click', e => { if (e.target === side) setSheet(false); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') setSheet(false); });
-  window.addEventListener('resize', () => { if (!window.matchMedia('(max-width: 1024px)').matches) setSheet(false); centerTab(); });
+  document.addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) location.hash = b.dataset.go; });
+  window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VIEWS.includes(v)) show(v); });
+  show(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calculadora');
 
   window.App = { get st() { return st; }, set st(v) { st = v; }, save, render, blank, coursesFor: courses };
   render();

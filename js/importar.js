@@ -100,7 +100,7 @@ const Hist = (() => {
 
   function draw() {
     const ps = sorted(), box = $('#hist');
-    if (!ps.length) { box.innerHTML = '<p class="hint">Aún no hay polígrafos cargados. Cuando subas los PDF, aquí verás tu historial y la calculadora tomará tus acumulados sola.</p>'; return; }
+    if (!ps.length) { box.innerHTML = '<p class="hint">Aún no hay polígrafos cargados. Cuando subas los PDF, aquí verás tu historial y la calculadora tomará tus acumulados sola.</p><p><button type="button" class="btn" data-go="datos">Subir polígrafos</button></p>'; return; }
     const last = ps[ps.length - 1];
     const chip = ok => ok
       ? `<span class="chip chip-ok">${ICO.ok}Aprobada</span>`
