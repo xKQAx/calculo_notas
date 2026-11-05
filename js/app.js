@@ -8,33 +8,222 @@
   const num = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : Math.min(5, Math.max(0, n)); };
   const fmt = (n, d = 2) => n.toFixed(d).replace('.', ',');
   const money = n => '$' + Math.round(n).toLocaleString('es-CO');
+
+  // Nota 0–5: si no hay coma, el primer dígito es la unidad y el resto el decimal ("45" → "4,5").
+  const formatNota = raw => {
+    const s = String(raw ?? '').replace(/\./g, ',');
+    const digits = s.replace(/\D/g, '');
+    if (!digits) return '';
+    const commaAt = s.indexOf(',');
+    if (commaAt === -1 && digits.length === 1) return digits[0] > '5' ? '5' : digits[0];
+    let entero, decimal;
+    if (commaAt === -1) {
+      entero = digits[0];
+      decimal = digits.slice(1, 3);
+    } else {
+      entero = (s.slice(0, commaAt).replace(/\D/g, '') || '0').slice(0, 1);
+      decimal = s.slice(commaAt + 1).replace(/\D/g, '').slice(0, 2);
+      if (decimal === '' && s.endsWith(',')) return (entero > '5' ? '5' : entero) + ',';
+    }
+    if (entero > '5') return '5,0';
+    const n = parseFloat(entero + '.' + (decimal || '0'));
+    if (n > 5) return '5,0';
+    return decimal ? entero + ',' + decimal : entero;
+  };
+
+  // Pesos en es-CO: "4000000" → "4.000.000". El cálculo sigue leyendo solo los dígitos.
+  const formatPesos = raw => {
+    const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 9);
+    if (!digits) return '';
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  };
+
+  // Reescribe el campo y deja el cursor sobre el mismo dígito, no al final por los separadores.
+  const applyMask = (el, format) => {
+    const start = el.selectionStart ?? el.value.length;
+    const digitsBefore = el.value.slice(0, start).replace(/\D/g, '').length;
+    const next = format(el.value);
+    if (next === el.value) return;
+    el.value = next;
+    let pos = next.length;
+    if (digitsBefore === 0) pos = 0;
+    else {
+      let seen = 0;
+      for (let i = 0; i < next.length; i++) {
+        if (/\d/.test(next[i]) && ++seen === digitsBefore) { pos = i + 1; break; }
+      }
+    }
+    try { el.setSelectionRange(pos, pos); } catch (e) {}
+  };
   const up1 = n => Math.ceil(n * 10 - 1e-9) / 10;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let list = [];
+
+  // Iconos de trazo, compartidos por chips y peldaños. El texto del chip no va dentro del SVG.
+  const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICO = {
+    ok: svg('<path d="M5 12.5 9.2 17 19 7"/>'),
+    bad: svg('<path d="M8 8l8 8M16 8l-8 8"/>'),
+    warn: svg('<path d="M12 4.5 3.5 19.5h17L12 4.5z"/><path d="M12 10v4M12 16.6h.01"/>'),
+    info: svg('<path d="M5 12h12M13 7l5 5-5 5"/>'),
+    soft: svg('<path d="M5 12.5 9.2 17 19 7"/>'),
+    done: svg('<path d="m12 3 2.4 4.8 5.3.8-3.8 3.7.9 5.3L12 15.8 7.2 17.6l.9-5.3L4.3 8.6l5.3-.8L12 3z"/>'),
+    open: svg('<circle cx="12" cy="12" r="7"/><path d="M12 8v4l2.5 2"/>'),
+    no: svg('<circle cx="12" cy="12" r="8"/><path d="M7.5 7.5l9 9"/>')
+  };
+  const chip = (kind, text) => `<span class="chip chip-${kind}">${ICO[kind]}${esc(text)}</span>`;
 
   const courses = (sem = st.sem) => PENSUM[sem].map((c, i) => ({ id: sem + '-' + i, ...c }))
     .concat(st.extra[sem] || [])
     .map(c => ({ w: CORTES, min: MIN_APROBAR, ...c }));
 
+  // Punto discreto: hay notas escritas, una electiva o un polígrafo de ese semestre.
+  function semHasData(n) {
+    const key = String(n);
+    const prefixed = Object.keys(st.notes).some(id => id.startsWith(key + '-') && (st.notes[id] || []).some(v => String(v ?? '').trim() !== ''));
+    const extras = st.extra[key] || [];
+    const extraNotes = extras.some(c => (st.notes[c.id] || []).some(v => String(v ?? '').trim() !== ''));
+    const hist = Object.values(st.hist || {}).some(p => String(p.nivel) === key);
+    return prefixed || extraNotes || extras.length > 0 || hist;
+  }
+
+  function refreshDot() {
+    const b = document.querySelector(`#tabs [data-sem="${st.sem}"]`);
+    if (!b) return;
+    const has = semHasData(st.sem);
+    b.setAttribute('aria-label', has ? `Semestre ${st.sem}, con datos` : `Semestre ${st.sem}`);
+    const dot = b.querySelector('.sem-dot');
+    if (has && !dot) b.insertAdjacentHTML('afterbegin', '<span class="sem-dot" aria-hidden="true"></span>');
+    if (!has && dot) dot.remove();
+  }
+
+  function centerTab() {
+    const nav = $('#tabs');
+    const b = nav.querySelector('[aria-pressed="true"]');
+    if (!b || !window.matchMedia('(max-width: 1024px)').matches) return;
+    const left = b.offsetLeft - (nav.clientWidth - b.offsetWidth) / 2;
+    nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' });
+  }
+
   function render() {
-    $('#tabs').innerHTML = Object.keys(PENSUM).map(n => `<button type="button" data-sem="${n}" aria-pressed="${n == st.sem}">Semestre ${n}</button>`).join('');
+    $('#tabs').innerHTML = Object.keys(PENSUM).map(n => {
+      const on = n == st.sem;
+      const has = semHasData(n);
+      const label = has ? `Semestre ${n}, con datos` : `Semestre ${n}`;
+      const dot = has ? '<span class="sem-dot" aria-hidden="true"></span>' : '';
+      return `<button type="button" data-sem="${n}" aria-pressed="${on}" aria-label="${label}">${dot}<span>Semestre ${n}</span></button>`;
+    }).join('');
     const p = st.prev[st.sem] || {};
     $('#prevCred').value = p.cred ?? '';
     $('#prevAvg').value = p.avg ?? '';
-    $('#base').value = st.base || '';
+    $('#base').value = formatPesos(st.base || '');
     $('#semTitle').textContent = 'Materias del semestre ' + st.sem;
     list = courses();
+    // data-label alimenta la tarjeta móvil: el CSS lo muestra y esconde el thead.
     $('#rows').innerHTML = list.map((c, i) => {
       const n = st.notes[c.id] || [];
-      const inp = k => `<input data-i="${i}" data-k="${k}" inputmode="decimal" value="${esc(n[k] ?? '')}" aria-label="Nota del corte ${k + 1} de ${esc(c.name)}">`;
+      const inp = k => {
+        const aria = c.w.length === 1 ? `Nota única de ${esc(c.name)}` : `Nota del corte ${k + 1} de ${esc(c.name)}`;
+        return `<input data-i="${i}" data-k="${k}" inputmode="decimal" autocomplete="off" spellcheck="false" value="${esc(formatNota(n[k] ?? ''))}" aria-label="${aria}">`;
+      };
       const cells = c.w.length === 1
-        ? `<td colspan="3" class="one">${inp(0)}<small>nota única, 100%</small></td>`
-        : c.w.map((_, k) => `<td>${inp(k)}</td>`).join('');
-      const del = c.extra ? ` <button type="button" class="link" data-del="${c.id}">quitar</button>` : '';
-      return `<tr><td class="name">${esc(c.name)}<small>mínimo ${fmt(c.min, 1)}${del}</small></td><td>${c.credits}</td>${cells}<td class="res" id="r${i}"></td><td class="need" id="n${i}"></td></tr>`;
+        ? `<td colspan="3" class="one cut" data-label="Nota única 100%">${inp(0)}<small class="unit">nota única, 100%</small></td>`
+        : c.w.map((w, k) => `<td class="cut" data-label="Corte ${k + 1} ${Math.round(w * 100)}%">${inp(k)}</td>`).join('');
+      const del = c.extra ? ` <button type="button" class="link" data-del="${esc(c.id)}">quitar</button>` : '';
+      return `<tr><td class="name" data-label="Materia">${esc(c.name)}<small>mínimo ${fmt(c.min, 1)}${del}</small></td><td class="cred" data-label="Créditos">${c.credits}</td>${cells}<td class="res" data-label="Definitiva" id="r${i}"></td><td class="need" data-label="Qué necesitas" id="n${i}"></td></tr>`;
     }).join('');
     update();
+    centerTab();
     if (typeof Hist !== 'undefined') Hist.draw();
+  }
+
+  // La barra se arma una vez para que el pin se desplace y no reaparezca en cada tecla.
+  function drawScale(shown, finalAvg) {
+    const min = 3, max = 5, span = max - min;
+    let root = $('#ruler .scale');
+    if (!root) {
+      const edges = [min, ...DESCUENTOS.map(t => t.prom), max];
+      const zones = [];
+      for (let i = 0; i < edges.length - 1; i++) {
+        const pct = i === 0 ? 0 : DESCUENTOS[i - 1].pct;
+        zones.push(`<div class="zone" data-pct="${pct}" style="width:${((edges[i + 1] - edges[i]) / span * 100).toFixed(4)}%"></div>`);
+      }
+      const marks = DESCUENTOS.map(t => `<i class="mark" style="left:${((t.prom - min) / span * 100).toFixed(4)}%"></i>`).join('');
+      const key = [{ pct: 0, name: 'Sin descuento' }, ...DESCUENTOS.map(t => ({ pct: t.pct, name: `${fmt(t.prom, 1)} · ${t.pct}%` }))]
+        .map(z => `<li><i data-pct="${z.pct}" aria-hidden="true"></i>${z.name}</li>`).join('');
+      $('#ruler').innerHTML = `<div class="scale" role="img"><div class="scale-track" aria-hidden="true">${zones.join('')}${marks}<span class="pin" hidden><span class="pin-val"></span></span></div><div class="scale-ends" aria-hidden="true"><span>3,0</span><span>5,0</span></div><ul class="scale-key" aria-hidden="true">${key}</ul></div>`;
+      root = $('#ruler .scale');
+    }
+    const phrase = describeScale(shown, finalAvg);
+    root.setAttribute('aria-label', phrase);
+    const pin = root.querySelector('.pin');
+    if (shown === null) { pin.hidden = true; return; }
+    const pos = Math.min(100, Math.max(0, (shown - min) / span * 100));
+    let pct = 0;
+    DESCUENTOS.forEach(t => { if (shown >= t.prom) pct = t.pct; });
+    const reveal = pin.hidden;
+    pin.style.left = pos.toFixed(4) + '%';
+    pin.dataset.pct = String(pct);
+    pin.querySelector('.pin-val').textContent = fmt(shown);
+    pin.hidden = false;
+    if (reveal) {
+      pin.style.transition = 'none';
+      requestAnimationFrame(() => { pin.style.transition = ''; });
+    }
+  }
+
+  function describeScale(shown, finalAvg) {
+    if (shown === null) return 'Escala de descuento de 3,0 a 5,0. Aún no hay promedio para ubicar.';
+    const kind = finalAvg ? 'Promedio del semestre' : 'Promedio con lo que llevas';
+    const hit = [...DESCUENTOS].reverse().find(t => shown >= t.prom);
+    if (!hit) return `${kind} ${fmt(shown)}, en la zona sin descuento, por debajo de ${fmt(DESCUENTOS[0].prom, 1)}. La escala va de 3,0 a 5,0.`;
+    const next = DESCUENTOS.find(t => t.prom > shown);
+    const hasta = next ? `, antes de ${fmt(next.prom, 1)}` : '';
+    return `${kind} ${fmt(shown)}, en la zona de ${hit.pct} por ciento, desde ${fmt(hit.prom, 1)}${hasta}. La escala va de 3,0 a 5,0.`;
+  }
+
+  function drawGoals(complete, avg, cr, known, left) {
+    const base = parseInt(String($('#base').value).replace(/\D/g, '')) || 0;
+    $('#goals').innerHTML = DESCUENTOS.map(t => {
+      let cls, state, msg;
+      if (complete) {
+        if (avg >= t.prom) { cls = 'is-done'; state = 'Lograda'; msg = 'Este descuento ya es tuyo'; }
+        else { cls = 'is-no'; state = 'Imposible'; msg = 'Con el semestre cerrado no se llega'; }
+      } else {
+        const x = (t.prom * cr - known) / left;
+        if (x <= 0) { cls = 'is-done'; state = 'Lograda'; msg = 'Ya lo tienes asegurado'; }
+        else if (x > 5) { cls = 'is-no'; state = 'Imposible'; msg = 'Ya no alcanza'; }
+        else { cls = 'is-open'; state = 'Alcanzable'; msg = 'Necesitas ' + fmt(up1(x), 1) + ' en lo que falta'; }
+      }
+      const ico = cls === 'is-done' ? 'done' : cls === 'is-no' ? 'no' : 'open';
+      const pay = base ? `<p class="pay">Pagarías ${money(base * (1 - t.pct / 100))}</p>` : '';
+      return `<article class="step ${cls}"><span class="step-ico">${ICO[ico]}</span><div><p class="step-top"><b>${fmt(t.prom, 1)}</b><span>${t.pct}%</span></p><p class="step-state">${state}</p><p class="step-msg">${msg}</p>${pay}</div></article>`;
+    }).join('');
+  }
+
+  function markInvalid() {
+    $('#rows').querySelectorAll('input[data-k]').forEach(inp => {
+      const raw = inp.value.trim().replace(',', '.');
+      const n = parseFloat(raw);
+      const bad = raw !== '' && (Number.isNaN(n) || n < 0 || n > 5);
+      const td = inp.closest('td');
+      let err = td.querySelector('.err');
+      if (!bad) {
+        inp.removeAttribute('aria-invalid');
+        inp.removeAttribute('aria-describedby');
+        if (err) err.remove();
+        return;
+      }
+      if (!err) {
+        err = document.createElement('small');
+        err.className = 'err';
+        err.id = `err-${inp.dataset.i}-${inp.dataset.k}`;
+        err.textContent = 'Entre 0 y 5';
+        td.appendChild(err);
+      }
+      inp.setAttribute('aria-invalid', 'true');
+      inp.setAttribute('aria-describedby', err.id);
+    });
   }
 
   function update() {
@@ -46,17 +235,21 @@
       if (r.final !== null) {
         pts += c.credits * r.final;
         const pass = r.final >= c.min;
-        res.textContent = fmt(r.final, 1);
         res.className = 'res ' + (pass ? 'ok' : 'bad');
-        nd.textContent = pass ? 'Aprobada' : 'No aprobada';
+        res.textContent = fmt(r.final, 1);
+        nd.innerHTML = pass ? chip('ok', 'Aprobada') : chip('bad', 'No aprobada');
       } else {
         complete = false;
         res.className = 'res';
-        res.textContent = r.left < 1 ? 'van ' + fmt(r.known) + ' pts' : '-';
+        res.innerHTML = r.left < 1 ? `<span class="sofar">${fmt(r.known)}</span><small>van</small>` : '—';
         const x = Calc.need(r, c.min);
-        nd.textContent = x <= 0 ? 'Ya pasaste' : x > 5 ? 'Ya no alcanza' : 'Saca ' + fmt(up1(x), 1) + (r.left < 1 ? ' en lo que falta' : ' en total');
+        if (x <= 0) nd.innerHTML = chip('soft', 'Ya pasaste');
+        else if (x > 5) nd.innerHTML = chip('warn', 'Ya no alcanza');
+        else nd.innerHTML = chip('info', 'Saca ' + fmt(up1(x), 1) + (r.left < 1 ? ' en lo que falta' : ' en total'));
       }
     });
+    markInvalid();
+    refreshDot();
 
     const avg = complete ? Calc.r2(pts / cr) : null;
     const sofar = cr - left > 0 ? known / (cr - left) : null;
@@ -64,46 +257,51 @@
     const pCred = parseInt($('#prevCred').value) || 0, pAvg = num($('#prevAvg').value) || 0;
     const acc = complete ? Calc.r2(Calc.accum(pAvg, pCred, pts, cr)) : null;
     const d = avg !== null ? Calc.discount(avg, DESCUENTOS) : null;
-    const stat = (v, l) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
+    const shownTxt = shown !== null ? fmt(shown) : '—';
+    const accTxt = acc !== null ? fmt(acc) : '—';
+    const discPct = avg !== null ? (d ? d.pct : 0) : null;
+    const label = avg !== null ? 'Promedio del semestre' : 'Promedio con lo que llevas';
     $('#summary').innerHTML =
-      stat(cr, 'créditos del semestre') +
-      stat(shown !== null ? fmt(shown) : '-', avg !== null ? 'promedio del semestre' : 'promedio con lo que llevas') +
-      stat(acc !== null ? fmt(acc) : '-', 'promedio acumulado nuevo') +
-      stat(avg !== null ? (d ? d.pct : 0) + '%' : '-', 'descuento por promedio');
-
-    const pos = x => Math.min(100, Math.max(0, (x - 3) / 2 * 100));
-    $('#ruler').innerHTML = `<div class="bar"><i style="width:${shown === null ? 0 : pos(shown)}%"></i>` +
-      DESCUENTOS.map(t => `<span class="tick" style="left:${pos(t.prom)}%"><span>${fmt(t.prom, 1)}<br>${t.pct}%</span></span>`).join('') +
-      `</div><div class="ends"><span>3,0</span><span>5,0</span></div>`;
-
-    const base = parseInt(String($('#base').value).replace(/\D/g, '')) || 0;
-    $('#goals').innerHTML = DESCUENTOS.map(t => {
-      let msg;
-      if (complete) msg = avg >= t.prom ? 'Lo lograste' : 'No alcanzado';
-      else {
-        const x = (t.prom * cr - known) / left;
-        msg = x <= 0 ? 'Ya lo tienes asegurado' : x > 5 ? 'Ya no alcanza' : 'Necesitas ' + fmt(up1(x), 1) + ' de promedio en lo que falta';
-      }
-      const m = base ? `<span>Pagarías ${money(base * (1 - t.pct / 100))}</span>` : '';
-      return `<div class="goal"><b>${fmt(t.prom, 1)}</b><span>${t.pct}% de descuento</span><strong>${msg}</strong>${m}</div>`;
-    }).join('');
+      `<p class="hero"><b>${shownTxt}</b><span>${label}</span></p>` +
+      `<dl class="figs"><div><dt>Créditos</dt><dd>${cr}</dd></div>` +
+      `<div><dt>Acumulado</dt><dd>${accTxt}</dd></div>` +
+      `<div><dt>Descuento</dt><dd${discPct ? ' class="is-gold"' : ''}>${discPct !== null ? discPct + '%' : '—'}</dd></div></dl>`;
+    const dockAvg = $('#dockAvg'), dockAcc = $('#dockAcc');
+    if (dockAvg) dockAvg.textContent = shownTxt;
+    if (dockAcc) dockAcc.textContent = accTxt;
+    drawScale(shown, avg !== null);
+    drawGoals(complete, avg, cr, known, left);
   }
 
   $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-sem]'); if (!b) return; st.sem = +b.dataset.sem; save(); render(); });
   $('#rows').addEventListener('input', e => {
     const t = e.target; if (t.dataset.k === undefined) return;
+    applyMask(t, formatNota);
     const c = list[t.dataset.i];
     (st.notes[c.id] = st.notes[c.id] || [])[t.dataset.k] = t.value;
     save(); update();
   });
+  $('#rows').addEventListener('focusout', e => {
+    const t = e.target;
+    if (!t.matches || !t.matches('input[data-k]') || !t.value.endsWith(',')) return;
+    t.value = t.value.slice(0, -1);
+    const c = list[t.dataset.i];
+    if (!c) return;
+    (st.notes[c.id] = st.notes[c.id] || [])[t.dataset.k] = t.value;
+    save(); update();
+  });
   $('#rows').addEventListener('click', e => {
-    const id = e.target.dataset.del; if (!id) return;
-    st.extra[st.sem] = st.extra[st.sem].filter(c => c.id !== id); delete st.notes[id]; save(); render();
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    st.extra[st.sem] = st.extra[st.sem].filter(c => c.id !== b.dataset.del); delete st.notes[b.dataset.del]; save(); render();
   });
   ['prevCred', 'prevAvg'].forEach(id => $('#' + id).addEventListener('input', () => {
     st.prev[st.sem] = { cred: $('#prevCred').value, avg: $('#prevAvg').value }; save(); update();
   }));
-  $('#base').addEventListener('input', () => { st.base = $('#base').value; save(); update(); });
+  $('#base').addEventListener('input', () => {
+    applyMask($('#base'), formatPesos);
+    st.base = $('#base').value;
+    save(); update();
+  });
   $('#addForm').addEventListener('submit', e => {
     e.preventDefault();
     const name = $('#exName').value.trim(), cr = parseInt($('#exCred').value);
@@ -116,6 +314,22 @@
     try { localStorage.removeItem(KEY); } catch (e) {}
     st = blank(); render();
   });
+
+  // En el celular la barra fija abre el mismo panel que en escritorio está siempre visible.
+  const side = $('#side'), dock = $('#dock');
+  const setSheet = open => {
+    const narrow = window.matchMedia('(max-width: 1024px)').matches;
+    side.classList.toggle('is-open', open && narrow);
+    document.body.classList.toggle('sheet-open', open && narrow);
+    dock.setAttribute('aria-expanded', open && narrow ? 'true' : 'false');
+    const more = dock.querySelector('.dock-more');
+    if (more) more.textContent = open && narrow ? 'Cerrar' : 'Ver metas';
+  };
+  dock.addEventListener('click', () => setSheet(!side.classList.contains('is-open')));
+  side.addEventListener('click', e => { if (e.target === side) setSheet(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setSheet(false); });
+  window.addEventListener('resize', () => { if (!window.matchMedia('(max-width: 1024px)').matches) setSheet(false); centerTab(); });
+
   window.App = { get st() { return st; }, set st(v) { st = v; }, save, render, blank, coursesFor: courses };
   render();
 })();

@@ -2,80 +2,161 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light dark">
 <title>Calculadora de notas UDES, Ingeniería de Software</title>
 <meta name="description" content="Calcula tu definitiva, tu promedio y cuánto necesitas para pasar o ganar descuento. Sin registro y sin servidor.">
+<meta name="theme-color" content="#F3F0E8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1814" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Calculadora de notas UDES, Ingeniería de Software">
+<meta property="og:description" content="Calcula tu definitiva, tu promedio y cuánto necesitas para pasar o ganar descuento. Sin registro: tus datos no salen del navegador.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="es_CO">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='3' fill='%23F3F0E8'/%3E%3Cpath d='M8 9h16M8 13.5h16M8 18h11' stroke='%231C1915' stroke-width='1.5'/%3E%3Cpath d='M8 23.5h9' stroke='%231E4D7B' stroke-width='1.8'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-<header class="top"><div class="wrap">
-  <h1>Calculadora de notas</h1>
-  <p>Ingeniería de Software, UDES. Escribe tus notas por corte y mira tu definitiva, tu promedio y cuánto te falta para pasar o ganar descuento.</p>
-</div></header>
-<main class="wrap">
-  <section class="panel">
-    <h2>Carga tus polígrafos</h2>
-    <p class="hint">Sube los PDF que descargas de Génesis, uno por periodo. Se leen en tu computador, ningún archivo sale de tu navegador.</p>
-    <div class="up">
-      <label class="filebtn">Subir polígrafos (PDF)<input id="pdfs" type="file" accept="application/pdf" multiple></label>
-      <button type="button" id="expXlsx" class="alt">Descargar Excel</button>
-      <button type="button" id="expJson" class="alt">Descargar JSON</button>
-      <label class="filebtn alt">Cargar JSON<input id="jsonIn" type="file" accept="application/json,.json"></label>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <p class="sub">Ingeniería de Software, UDES</p>
+      <h1>Calculadora de notas</h1>
     </div>
-    <ul id="log" aria-live="polite"></ul>
-  </section>
-  <section class="panel">
-    <h2>Tu historial</h2>
-    <div id="hist"></div>
-  </section>
-
+    <p class="lede">Escribe tus notas por corte o sube los polígrafos de Génesis. Ves la definitiva, el promedio y cuánto te falta para aprobar o para el descuento.</p>
+    <a class="btn" href="#carga">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 16V6M8.5 9.5 12 6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 18.5h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Cargar polígrafos
+    </a>
+    <ul class="trust">
+      <li>Sin registro</li>
+      <li>Tus datos no salen de tu navegador</li>
+      <li>Herramienta no oficial</li>
+    </ul>
+  </div>
+</header>
+<!-- Fuera del header para que el sticky no muera cuando el título sale de pantalla. #tabs sigue siendo el nodo de app.js. -->
+<div class="tabbar">
   <nav id="tabs" class="tabs" aria-label="Semestre"></nav>
+</div>
+<main id="contenido" class="wrap desk">
+  <div class="col">
+    <section class="block no-print" id="carga" aria-labelledby="cargaTitle">
+      <div class="sec-head">
+        <h2 id="cargaTitle">Carga tus polígrafos</h2>
+        <p class="hint">Los PDF de Génesis se leen en tu computador. Ningún archivo sale de tu navegador.</p>
+      </div>
+      <div class="block-body load-row">
+      <div class="drop" id="drop">
+        <svg class="drop-ico" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M7 3.5h7l5 5V20.5H7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3.5v5h5M12 17v-5M9.5 14.5 12 12l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p class="drop-title">Arrastra tus polígrafos</p>
+        <p class="drop-sub">PDF de Génesis, uno o varios.</p>
+        <p class="drop-over" aria-hidden="true">Suelta para leerlos</p>
+        <label class="btn">Elegir PDF
+          <input id="pdfs" type="file" accept="application/pdf,.pdf" multiple>
+        </label>
+        <p id="dropStatus" class="drop-status" aria-live="polite"></p>
+        <span class="meter" aria-hidden="true"><i></i></span>
+      </div>
+      <div class="io" role="group" aria-label="Exportar o cargar datos">
+        <button type="button" id="expXlsx" class="btn">Descargar Excel</button>
+        <button type="button" id="expJson" class="btn btn-ghost">Descargar JSON</button>
+        <label class="btn btn-ghost">Cargar JSON
+          <input id="jsonIn" type="file" accept="application/json,.json">
+        </label>
+      </div>
+      </div>
+      <div id="log" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+    </section>
 
-  <section class="panel">
-    <h2>Lo que ya llevas acumulado</h2>
-    <p class="hint">Cópialo del polígrafo del semestre anterior en Génesis. En primer semestre déjalo vacío.</p>
-    <div class="pair">
-      <label>Créditos acumulados<input id="prevCred" inputmode="numeric" placeholder="0"></label>
-      <label>Promedio acumulado<input id="prevAvg" inputmode="decimal" placeholder="0,00"></label>
+    <section class="block no-print" aria-labelledby="histTitle">
+      <div class="sec-head">
+        <h2 id="histTitle">Tu historial</h2>
+        <p class="hint">Cada polígrafo queda como un periodo. Desde el segundo, también ves la curva del promedio.</p>
+      </div>
+      <div class="block-body" id="hist"></div>
+    </section>
+
+    <section class="block" aria-labelledby="semTitle">
+      <div class="sec-head">
+        <h2 id="semTitle"></h2>
+      </div>
+      <div class="acc no-print">
+        <p class="acc-note">El acumulado sale del polígrafo anterior. En primer semestre déjalo vacío.</p>
+        <div class="pair">
+          <label>Créditos acumulados<input id="prevCred" inputmode="numeric" placeholder="0" autocomplete="off"></label>
+          <label>Promedio acumulado<input id="prevAvg" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+        </div>
+      </div>
+      <div class="scroll grades-scroll">
+        <table class="grades">
+          <colgroup>
+            <col class="c-name">
+            <col class="c-cred">
+            <col class="c-cut">
+            <col class="c-cut">
+            <col class="c-cut">
+            <col class="c-def">
+            <col class="c-need">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Materia</th>
+              <th>Créd.</th>
+              <th>Corte 1<small>30%</small></th>
+              <th>Corte 2<small>30%</small></th>
+              <th>Corte 3<small>40%</small></th>
+              <th class="col-def">Definitiva</th>
+              <th>Qué necesitas</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="block-body">
+      <p class="hint no-print">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: agrégalas aquí.</p>
+      <form id="addForm" class="add no-print">
+        <input id="exName" class="add-name" placeholder="Nombre de la electiva" aria-label="Nombre de la materia" autocomplete="off">
+        <input id="exCred" class="add-cred" inputmode="numeric" placeholder="Créditos" aria-label="Créditos" autocomplete="off">
+        <button class="btn">Agregar materia</button>
+      </form>
+      <p class="print-note">Herramienta no oficial. La nota válida es la de Génesis.</p>
+      </div>
+    </section>
+  </div>
+
+  <aside class="side" id="side" aria-label="Resultado y metas">
+    <button type="button" class="dock" id="dock" aria-expanded="false" aria-controls="sidePanel">
+      <span class="dock-item"><span class="dock-k">Semestre</span><strong id="dockAvg">—</strong></span>
+      <span class="dock-item"><span class="dock-k">Acumulado</span><strong id="dockAcc">—</strong></span>
+      <span class="dock-more">Ver metas</span>
+    </button>
+    <div class="side-panel" id="sidePanel">
+      <div class="slip">
+        <section aria-labelledby="resTitle">
+          <h2 id="resTitle">Resultado del semestre</h2>
+          <div id="summary" aria-live="polite" aria-atomic="true"></div>
+          <div id="ruler"></div>
+        </section>
+        <section class="slip-goals no-print" aria-labelledby="goalTitle">
+          <h2 id="goalTitle">Metas de descuento</h2>
+          <p class="hint">Según el acuerdo 005 de la universidad. Verifica siempre el valor vigente.</p>
+          <div id="goals"></div>
+          <label class="base">Valor de tu matrícula base (opcional)<input id="base" inputmode="numeric" placeholder="4.000.000" autocomplete="off"></label>
+        </section>
+      </div>
     </div>
-  </section>
-
-  <section class="panel">
-    <h2 id="semTitle"></h2>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Materia</th><th>Créd.</th><th>Corte 1<small>30%</small></th><th>Corte 2<small>30%</small></th><th>Corte 3<small>40%</small></th><th>Definitiva</th><th>Qué necesitas</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-    <p class="hint">Inglés y las materias de informática (aprobado o no) no tienen créditos y no cambian el promedio, por eso no aparecen. Las electivas con créditos sí cuentan: agrégalas aquí.</p>
-    <form id="addForm" class="add">
-      <input id="exName" placeholder="Nombre de la electiva" aria-label="Nombre de la materia">
-      <input id="exCred" inputmode="numeric" placeholder="Créditos" aria-label="Créditos">
-      <button>Agregar materia</button>
-    </form>
-  </section>
-
-  <section class="panel">
-    <h2>Resultado del semestre</h2>
-    <div id="summary" class="stats"></div>
-    <div id="ruler"></div>
-  </section>
-
-  <section class="panel">
-    <h2>Metas de descuento</h2>
-    <p class="hint">Según el acuerdo 005 de la universidad. Verifica siempre el valor vigente.</p>
-    <div id="goals" class="goals"></div>
-    <label class="base">Valor de tu matrícula base (opcional)<input id="base" inputmode="numeric" placeholder="4000000"></label>
-  </section>
+  </aside>
 </main>
-<footer class="wrap">
+<footer class="wrap no-print">
   <p>Herramienta no oficial hecha por un estudiante. La nota válida es la de Génesis. No enviamos nada a ningún servidor: lo que escribes y los PDF que subes solo se guardan en tu navegador. Puedes descargar tus datos en Excel o JSON.</p>
-  <button type="button" id="reset" class="link">Borrar mis datos</button>
+  <button type="button" id="reset" class="link link-danger">Borrar mis datos</button>
 </footer>
+<noscript><p class="wrap">Esta calculadora necesita JavaScript. Con él activado, nada de lo que escribes sale de tu navegador.</p></noscript>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="js/data.js"></script>
